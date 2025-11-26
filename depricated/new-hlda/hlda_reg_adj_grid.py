@@ -6,7 +6,7 @@ from scipy.linalg import eigh
 # 1. Data Generation (Hierarchical Data)
 # ----------------------
 clusters_per_class = {1: [300], 2: [150, 150], 3: [75, 75, 75, 75]}
-dims = 1000
+dims = 3
 class_std = 2
 subclass_std = 100
 cluster_std = 20
@@ -92,7 +92,7 @@ def hierarchical_lda_objective(W, S_B, S_W, subclass_means, parent_means, lambda
             diff = W.T @ (mu_cs - parent_means[c])
             norm_val = np.linalg.norm(diff)
             R2 += norm_val
-    return lda_obj + lambda1 * R1 + lambda2 * R2
+    return lda_obj - lambda1 * R1 - lambda2 * R2
 
 # ----------------------
 # 4. Optimize W by Maximizing the Hierarchical LDA Objective (Gradient Ascent)
@@ -135,10 +135,11 @@ def optimize_W_hlda(S_B, S_W, subclass_means, parent_means, W_init, lambda1, lam
 # 5. Grid Search Over Independent lambda1, lambda2, and alpha, and Optimize W for Each
 # ----------------------
 r = 2
+
 np.random.seed(2001)
 W_init = np.random.randn(d, r)
-grid_lambda1 = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-grid_lambda2 = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+grid_lambda1 = [1,10,20,30,40,50,60,70,80,90,100]
+grid_lambda2 = [1,10,20,30,40,50,60,70,80,90,100]
 grid_alpha = [0, 0.25, 0.5, 0.75, 1]
 best_obj = -np.inf
 best_l1 = None
@@ -203,3 +204,153 @@ for pos, c in zip(positions, unique_classes):
 plt.suptitle(f"Optimized Hierarchical LDA Projection\n(Best lambda1={best_l1}, lambda2={best_l2}, alpha={best_alpha})", fontsize=14)
 plt.tight_layout()
 plt.show()
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from scipy.linalg import eigh
+
+# # ----------------------
+# # 1. Data Generation (Hierarchical Data)
+# # ----------------------
+# clusters_per_class = {1: [300], 2: [150, 150], 3: [75, 75, 75, 75]}
+# dims = 3
+# class_std = 2
+# subclass_std = 100
+# cluster_std = 20
+# data_points, labels_class, labels_cluster = [], [], []
+# class_means = {}
+# for class_label, cluster_sizes in clusters_per_class.items():
+#     base_mean = np.random.randn(dims) * class_std
+#     class_means[class_label] = base_mean
+#     for cluster_index, n_points in enumerate(cluster_sizes, start=1):
+#         subclass_mean = base_mean + np.random.randn(dims) * subclass_std
+#         points = subclass_mean + np.random.randn(n_points, dims) * cluster_std
+#         data_points.append(points)
+#         labels_class.extend([class_label] * n_points)
+#         labels_cluster.extend([(class_label, cluster_index)] * n_points)
+# data_points = np.vstack(data_points)
+# labels_class = np.array(labels_class)
+# labels_cluster = np.array(labels_cluster)
+
+# # ----------------------
+# # 2. Compute Scatter Matrices and Hierarchical Means
+# # ----------------------
+# overall_mean = np.mean(data_points, axis=0)
+# unique_classes = np.unique(labels_class)
+# d = dims
+# S_B = np.zeros((d, d))
+# for c in unique_classes:
+#     idx = np.where(labels_class == c)[0]
+#     X_c = data_points[idx, :]
+#     mu_c = np.mean(X_c, axis=0)
+#     S_B += len(idx) * np.outer(mu_c - overall_mean, mu_c - overall_mean)
+# S_WS, S_BS = np.zeros((d, d)), np.zeros((d, d))
+# parent_means, subclass_means = {}, {}
+# for c in unique_classes:
+#     idx_class = np.where(labels_class == c)[0]
+#     X_c = data_points[idx_class, :]
+#     mu_c = np.mean(X_c, axis=0)
+#     parent_means[c] = mu_c
+#     class_subs = np.array([lbl[1] for lbl in labels_cluster[idx_class]])
+#     unique_subs = np.unique(class_subs)
+#     subclass_means[c] = []
+#     for sub in unique_subs:
+#         idx_sub = np.where(np.array([(lbl[0] == c and lbl[1] == sub) for lbl in labels_cluster]))[0]
+#         X_cs = data_points[idx_sub, :]
+#         mu_cs = np.mean(X_cs, axis=0)
+#         subclass_means[c].append(mu_cs)
+#         diff = X_cs - mu_cs
+#         S_WS += diff.T @ diff
+#         S_BS += len(X_cs) * np.outer(mu_cs - mu_c, mu_cs - mu_c)
+# reg = 1e-8
+
+# # ----------------------
+# # 3. Define the HLDA Objective with Gamma
+# # ----------------------
+# def hierarchical_lda_objective(W, S_B, S_W, subclass_means, parent_means, lambda1, lambda2, gamma=1.0, eps=1e-8):
+#     numerator = gamma * np.trace(W.T @ S_B @ W)
+#     denominator = np.trace(W.T @ S_W @ W) + eps
+#     lda_obj = numerator / denominator
+#     R1, R2 = 0.0, 0.0
+#     for c, sub_means in subclass_means.items():
+#         for i in range(len(sub_means)):
+#             for j in range(i+1, len(sub_means)):
+#                 diff = W.T @ (sub_means[i] - sub_means[j])
+#                 R1 += 1.0 / (np.linalg.norm(diff) + eps)
+#         for mu_cs in sub_means:
+#             diff = W.T @ (mu_cs - parent_means[c])
+#             R2 += np.linalg.norm(diff)
+#     return lda_obj, R1, R2
+
+# # ----------------------
+# # 4. Gradient Ascent with Gamma
+# # ----------------------
+# def optimize_W_hlda(S_B, S_W, subclass_means, parent_means, W_init, lambda1, lambda2, gamma=1.0, num_iters=200, step_size=1e-4, eps=1e-8):
+#     W = W_init.copy()
+#     for it in range(num_iters):
+#         f = gamma * np.trace(W.T @ S_B @ W)
+#         g = np.trace(W.T @ S_W @ W) + eps
+#         grad_trace = (g * (2 * gamma * S_B @ W) - f * (2 * S_W @ W)) / (g**2)
+#         grad_R1, grad_R2 = np.zeros_like(W), np.zeros_like(W)
+#         for c, sub_means in subclass_means.items():
+#             for i in range(len(sub_means)):
+#                 for j in range(i+1, len(sub_means)):
+#                     d_ij = sub_means[i] - sub_means[j]
+#                     proj = W.T @ d_ij
+#                     norm_proj = np.linalg.norm(proj)
+#                     grad_R1 += - (d_ij[:, None] @ (d_ij[:, None].T @ W)) / (norm_proj * (norm_proj + eps)**2 + eps)
+#             for mu_cs in sub_means:
+#                 d = mu_cs - parent_means[c]
+#                 proj = W.T @ d
+#                 norm_proj = np.linalg.norm(proj)
+#                 grad_R2 += (d[:, None] @ (d[:, None].T @ W)) / (norm_proj + eps)
+#         grad = grad_trace + lambda1 * grad_R1 + lambda2 * grad_R2
+#         W += step_size * grad
+#         W, _ = np.linalg.qr(W)
+#     return W
+
+# # ----------------------
+# # 5. Grid Search with Recording
+# # ----------------------
+# r = 2
+# np.random.seed(2001)
+# W_init = np.random.randn(d, r)
+# grid_lambda1 = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,2,3,4,5,6,7,8,9,10]
+# grid_lambda2 = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+# grid_alpha = [0.5]  # fixed to isolate regularization effect
+# grid_gamma = [10]   # fixed to isolate regularization effect
+
+# r1_vals, r2_vals, obj_vals_r1, obj_vals_r2 = [], [], [], []
+
+# for lam1 in grid_lambda1:
+#     S_W_current = grid_alpha[0] * S_WS + (1 - grid_alpha[0]) * S_BS + reg * np.eye(d)
+#     W_opt = optimize_W_hlda(S_B, S_W_current, subclass_means, parent_means, W_init.copy(), lam1, 5, grid_gamma[0])
+#     obj_val, R1, R2 = hierarchical_lda_objective(W_opt, S_B, S_W_current, subclass_means, parent_means, lam1, 5, grid_gamma[0])
+#     r1_vals.append(lam1)
+#     obj_vals_r1.append(obj_val)
+
+# for lam2 in grid_lambda2:
+#     S_W_current = grid_alpha[0] * S_WS + (1 - grid_alpha[0]) * S_BS + reg * np.eye(d)
+#     W_opt = optimize_W_hlda(S_B, S_W_current, subclass_means, parent_means, W_init.copy(), 5, lam2, grid_gamma[0])
+#     obj_val, R1, R2 = hierarchical_lda_objective(W_opt, S_B, S_W_current, subclass_means, parent_means, 5, lam2, grid_gamma[0])
+#     r2_vals.append(lam2)
+#     obj_vals_r2.append(obj_val)
+
+# # ----------------------
+# # 6. Plot Objective vs Reg Terms
+# # ----------------------
+# plt.figure(figsize=(10, 5))
+# plt.subplot(1, 2, 1)
+# plt.plot(r1_vals, obj_vals_r1, marker='o')
+# plt.title("Objective vs Lambda1")
+# plt.xlabel("Lambda1")
+# plt.ylabel("Objective Value")
+
+# plt.subplot(1, 2, 2)
+# plt.plot(r2_vals, obj_vals_r2, marker='o')
+# plt.title("Objective vs Lambda2")
+# plt.xlabel("Lambda2")
+# plt.ylabel("Objective Value")
+
+# plt.suptitle("Effect of Regularization on HLDA Objective")
+# plt.tight_layout()
+# plt.show()
