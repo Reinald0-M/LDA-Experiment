@@ -2,7 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import eigh
 from sklearn.model_selection import KFold
+import os
 
+# same as v1
 # ----------------------
 # 1. Data Generation (Hierarchical Data)
 # ----------------------
@@ -130,14 +132,11 @@ def joint_gradient_ascent(S_B, S_WS, S_BS, subclass_means, parent_means, reg, nu
         obj = hierarchical_lda_objective(W, S_B, S_W, subclass_means, parent_means, lambda1, lambda2)
         history.append(obj)
         if it % 50 == 0:
-            print(f"Iter {it}: Obj={obj:.4f}, alpha={alpha:.4f}, lambda1={lambda1:.4f}, lambda2={lambda2:.4f}")
+            print(f"Iter {it}: Obj={obj:.4f}, alpha={alpha:.4f}, lambda1={lambda1:.4f}, lambda2={lambda2:.4f}", end='\r')
     return W, lambda1, lambda2, alpha, history
 
 W_opt, best_l1, best_l2, best_alpha, history = joint_gradient_ascent(S_B_full, S_WS_full, S_BS_full, subclass_means_full, parent_means_full, reg, num_iters=500)
-print("Best Obj:", history[-1])
-print("Best alpha:", best_alpha)
-print("Best lambda1:", best_l1)
-print("Best lambda2:", best_l2)
+print(f'Best Obj: {history[-1]:.4f}, Best alpha: {best_alpha:.4f}, Best lambda1: {best_l1:.4f}, Best lambda2: {best_l2:.4f}', end='\n')
 
 def plot_full_projection(W, best_alpha, best_lambda1, best_lambda2, data_points, labels_class, labels_cluster, dims, reg, title_prefix="Full Data Projection"):
     # Compute the composite scatter matrix S_W using the best alpha.
@@ -257,16 +256,16 @@ for train_index, test_index in kf.split(data_points):
 # ----------------------
 # 7. Plot Gradient History from Full Data Training
 # ----------------------
-fig_hist, axs_hist = plt.subplots(2, 1, figsize=(8, 6))
-axs_hist[0].plot(gradW_history, label="Gradient Norm for W")
-axs_hist[0].set_xlabel("Iteration")
-axs_hist[0].set_ylabel("Norm")
-axs_hist[0].set_title("Gradient Norm History for W")
-axs_hist[0].legend()
-axs_hist[1].plot(gradAlpha_history, label="Gradient Norm for alpha", color='red')
-axs_hist[1].set_xlabel("Iteration")
-axs_hist[1].set_ylabel("Norm")
-axs_hist[1].set_title("Gradient Norm History for alpha")
-axs_hist[1].legend()
-plt.tight_layout()
-plt.show()
+# fig_hist, axs_hist = plt.subplots(2, 1, figsize=(8, 6))
+# axs_hist[0].plot(gradW_history, label="Gradient Norm for W")
+# axs_hist[0].set_xlabel("Iteration")
+# axs_hist[0].set_ylabel("Norm")
+# axs_hist[0].set_title("Gradient Norm History for W")
+# axs_hist[0].legend()
+# axs_hist[1].plot(gradAlpha_history, label="Gradient Norm for alpha", color='red')
+# axs_hist[1].set_xlabel("Iteration")
+# axs_hist[1].set_ylabel("Norm")
+# axs_hist[1].set_title("Gradient Norm History for alpha")
+# axs_hist[1].legend()
+# plt.tight_layout()
+# plt.show()
