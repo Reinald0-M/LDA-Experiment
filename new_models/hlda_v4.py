@@ -73,7 +73,7 @@ def grad_norm_wrt_W(W, diff_vec, eps=1e-8):
     return grad, norm_val
 
 # ==========================================
-# 3. Optimization Logic (Version 4)
+# 3. Optimization Logic (Version 4 - Ratio + Squared Hinge)
 # ==========================================
 def joint_gradient_ascent_v4(S_B, S_WS, S_BS, subclass_means, parent_means, mu_tot, 
                              reg=1e-4, num_iters=300, fix_hyperparams=None):
@@ -105,26 +105,34 @@ def joint_gradient_ascent_v4(S_B, S_WS, S_BS, subclass_means, parent_means, mu_t
                     S_R_val += inv_norm
                     grad_S_R += -(inv_norm**2) * g_norm
                     
-        # S_T (Denominator: Topology Hinge Loss)
+        # S_T (Denominator: Topology SQUARED Hinge Loss)
+        # Formula: Sum [ ||Anchor|| - tau * ||Global||^2 ]_+
         S_T_val = 0.0; grad_S_T = np.zeros_like(W)
         grad_S_T_tau_part = 0.0
         
         for c, sub_means in subclass_means.items():
             for mu_cs in sub_means:
-                # Anchor Term
+                # Anchor Term (Linear Norm)
                 diff_anchor = mu_cs - parent_means[c]
                 g_anchor, n_anchor = grad_norm_wrt_W(W, diff_anchor)
                 
-                # Global Term
+                # Global Term (Squared Norm)
                 diff_global = mu_cs - mu_tot
-                g_global, n_global = grad_norm_wrt_W(W, diff_global)
+                proj_global = W.T @ diff_global
                 
-                # Hinge: max(0, anchor - tau * global)
-                loss = n_anchor - tau * n_global
+                # Squared Norm calculation
+                n_global_sq = np.dot(proj_global, proj_global) 
+                
+                # Gradient of ||Wx||^2 is 2 * x * (x^T W)
+                g_global_sq = 2 * np.outer(diff_global, proj_global)
+                
+                # Hinge: max(0, anchor - tau * global^2)
+                loss = n_anchor - tau * n_global_sq
+                
                 if loss > 0:
                     S_T_val += loss
-                    grad_S_T += (g_anchor - tau * g_global)
-                    grad_S_T_tau_part += n_global
+                    grad_S_T += (g_anchor - tau * g_global_sq)
+                    grad_S_T_tau_part += n_global_sq
 
         # Ratio Objective
         tr_num = np.trace(W.T @ S_B @ W)
@@ -148,7 +156,7 @@ def joint_gradient_ascent_v4(S_B, S_WS, S_BS, subclass_means, parent_means, mu_t
             dD_da = np.trace(W.T @ (S_WS - S_BS) @ W)
             grad_alpha = -(N * dD_da) / (D**2)
             
-            dD_dtau = - l1 * grad_S_T_tau_part
+            dD_dtau = - l1 * grad_S_T_tau_part # Derivative wrt tau
             grad_tau = -(N * dD_dtau) / (D**2)
             
             l1 = max(l1 + step_hyp * grad_l1, 0)
@@ -157,9 +165,8 @@ def joint_gradient_ascent_v4(S_B, S_WS, S_BS, subclass_means, parent_means, mu_t
             tau = np.clip(tau + step_hyp * grad_tau, 0, 1)
             
         W += step_W * grad_J_W; W, _ = np.linalg.qr(W)
-        
         history.append(obj)
-        hW.append(np.linalg.norm(grad_N_W))
+        hW.append(np.linalg.norm(grad_J_W))
         
         if it % 50 == 0:
             print(f"Iter {it}: Obj={obj:.4f}, a={alpha:.2f}, tau={tau:.2f}, l1={l1:.2f}, l2={l2:.2f}", end='\r')
@@ -170,10 +177,10 @@ def joint_gradient_ascent_v4(S_B, S_WS, S_BS, subclass_means, parent_means, mu_t
 # 4. Grid Search Wrapper
 # ==========================================
 def run_grid_search(S_B, S_WS, S_BS, sub_means, par_means, mu_tot, reg):
-    print("Running Grid Search V4...")
+    print("Running Grid Search V4 (Ratio + Squared Hinge)...")
     alphas = np.linspace(0, 1, 3)
-    l1s = np.linspace(0.1, 100, 3)
-    l2s = np.linspace(0.1, 100, 3)
+    l1s = np.linspace(0.1, 10, 3)
+    l2s = np.linspace(0.1, 10, 3)
     taus = np.linspace(0, 1, 3)
     
     grid = {'alpha': alphas, 'l1': l1s, 'l2': l2s, 'tau': taus}
@@ -232,14 +239,14 @@ def run_visualizations(W, alpha, l1, l2, tau, data, y_cls, y_clst, hist, hist_W,
     # Gradient History
     if hist_W and len(hist_W) > 0:
         axs[1].plot(hist_W, label='Grad W Norm', color='purple')
-        axs[1].set_xscale('log')
         axs[1].set_yscale('log')
+        axs[1].set_xscale('log')
         axs[1].set_title("Gradient Norm History")
         axs[1].set_xlabel("Iteration")
         axs[1].legend()
     else:
         axs[1].text(0.5, 0.5, "No History for Grid Search Snapshot", ha='center')
-        
+
     plt.tight_layout()
     save_path = 'figs/hlda_v4'
     os.makedirs(save_path, exist_ok=True)
