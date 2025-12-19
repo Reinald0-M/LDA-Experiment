@@ -173,15 +173,131 @@ def joint_gradient_ascent_v4(S_B, S_WS, S_BS, subclass_means, parent_means, mu_t
             
     return W, alpha, l1, l2, tau, history, hW
 
+
+# def joint_gradient_ascent_v4(S_B, S_WS, S_BS, subclass_means, parent_means, mu_tot, 
+#                              reg=1e-4, num_iters=300, fix_hyperparams=None):
+#     dims = S_B.shape[0]
+#     W = np.random.randn(dims, 2); W, _ = np.linalg.qr(W)
+    
+#     # Defaults or Fixed Hyperparameters
+#     alpha = fix_hyperparams['alpha'] if fix_hyperparams else 0.5
+#     l1 = fix_hyperparams['l1'] if fix_hyperparams else 0.5
+#     l2 = fix_hyperparams['l2'] if fix_hyperparams else 0.5
+#     tau = fix_hyperparams['tau'] if fix_hyperparams else 0.5
+    
+#     step_W = 1e-4; step_hyp = 1e-3; eps = 1e-8
+#     history = []; hW = []
+    
+#     for it in range(num_iters):
+#         # S_mix (Denominator scatter)
+#         S_mix = alpha * S_WS + (1 - alpha) * S_BS + reg * np.eye(dims)
+        
+#         # ---------------------------------------------------------
+#         # S_R (Numerator: Sibling Separation - Squared Inverse)
+#         # Objective: Sum 1 / (||proj||^2 + eps)
+#         # ---------------------------------------------------------
+#         S_R_val = 0.0; grad_S_R = np.zeros_like(W)
+#         for c, sub_means in subclass_means.items():
+#             num_sub = len(sub_means)
+#             for i in range(num_sub):
+#                 for j in range(i+1, num_sub):
+#                     diff = sub_means[i] - sub_means[j]
+#                     proj = W.T @ diff
+                    
+#                     # Squared Norm
+#                     sq_norm = np.dot(proj, proj) + eps
+                    
+#                     # Objective
+#                     S_R_val += 1.0 / sq_norm
+                    
+#                     # Gradient: d(1/x)/dW = -1/x^2 * dx/dW
+#                     # dx/dW (of squared norm) = 2 * diff * proj.T
+#                     coeff = -1.0 / (sq_norm**2)
+#                     grad_sq = 2 * np.outer(diff, proj)
+#                     grad_S_R += coeff * grad_sq
+                    
+#         # ---------------------------------------------------------
+#         # S_T (Denominator: Topology Squared Hinge)
+#         # Objective: Sum max(0, ||Anchor||^2 - tau * ||Global||^2)
+#         # ---------------------------------------------------------
+#         S_T_val = 0.0; grad_S_T = np.zeros_like(W)
+#         grad_S_T_tau_part = 0.0
+        
+#         for c, sub_means in subclass_means.items():
+#             for mu_cs in sub_means:
+#                 # Anchor vectors
+#                 diff_anchor = mu_cs - parent_means[c]
+#                 proj_anchor = W.T @ diff_anchor
+#                 n_anchor_sq = np.dot(proj_anchor, proj_anchor)
+                
+#                 # Global vectors
+#                 diff_global = mu_cs - mu_tot
+#                 proj_global = W.T @ diff_global
+#                 n_global_sq = np.dot(proj_global, proj_global)
+                
+#                 # Hinge Loss Condition
+#                 loss = n_anchor_sq - tau * n_global_sq
+                
+#                 if loss > 0:
+#                     S_T_val += loss
+                    
+#                     # Gradients of Squared Norms
+#                     g_anchor_sq = 2 * np.outer(diff_anchor, proj_anchor)
+#                     g_global_sq = 2 * np.outer(diff_global, proj_global)
+                    
+#                     grad_S_T += (g_anchor_sq - tau * g_global_sq)
+#                     grad_S_T_tau_part += n_global_sq
+
+#         # ---------------------------------------------------------
+#         # Ratio Objective & Quotient Rule
+#         # ---------------------------------------------------------
+#         tr_num = np.trace(W.T @ S_B @ W)
+#         tr_den = np.trace(W.T @ S_mix @ W)
+        
+#         N = tr_num + l2 * S_R_val
+#         D = tr_den + l1 * S_T_val + eps 
+#         obj = N / D
+        
+#         grad_N_W = 2 * S_B @ W + l2 * grad_S_R
+#         grad_D_W = 2 * S_mix @ W + l1 * grad_S_T
+        
+#         # Quotient Rule: (D*N' - N*D') / D^2
+#         grad_J_W = (D * grad_N_W - N * grad_D_W) / (D**2)
+        
+#         # Hyperparameter Updates
+#         if not fix_hyperparams:
+#             grad_l2 = S_R_val / D
+#             grad_l1 = -(N * S_T_val) / (D**2)
+            
+#             dD_da = np.trace(W.T @ (S_WS - S_BS) @ W)
+#             grad_alpha = -(N * dD_da) / (D**2)
+            
+#             dD_dtau = - l1 * grad_S_T_tau_part
+#             grad_tau = -(N * dD_dtau) / (D**2)
+            
+#             l1 = max(l1 + step_hyp * grad_l1, 0)
+#             l2 = max(l2 + step_hyp * grad_l2, 0)
+#             alpha = np.clip(alpha + step_hyp * grad_alpha, 0, 1)
+#             tau = np.clip(tau + step_hyp * grad_tau, 0, 1)
+            
+#         W += step_W * grad_J_W; W, _ = np.linalg.qr(W)
+#         history.append(obj)
+#         hW.append(np.linalg.norm(grad_J_W))
+        
+#         if it % 50 == 0:
+#             print(f"Iter {it}: Obj={obj:.4f}, a={alpha:.2f}, tau={tau:.2f}, l1={l1:.2f}, l2={l2:.2f}", end='\r')
+            
+#     return W, alpha, l1, l2, tau, history, hW
+
 # ==========================================
 # 4. Grid Search Wrapper
 # ==========================================
 def run_grid_search(S_B, S_WS, S_BS, sub_means, par_means, mu_tot, reg):
     print("Running Grid Search V4 (Ratio + Squared Hinge)...")
-    alphas = np.linspace(0, 1, 3)
-    l1s = np.linspace(0.1, 10, 3)
-    l2s = np.linspace(0.1, 10, 3)
-    taus = np.linspace(0, 1, 3)
+    alphas = np.linspace(0, 1, 10)
+    l1s = np.linspace(0.1, 10, 10)
+    l2s = np.linspace(0.1, 10, 10)
+    taus = np.linspace(0, 1, 10)
     
     grid = {'alpha': alphas, 'l1': l1s, 'l2': l2s, 'tau': taus}
     keys, values = zip(*grid.items())

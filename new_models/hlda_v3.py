@@ -71,6 +71,88 @@ def grad_norm(W, diff_vec, eps=1e-8):
 # ----------------------
 # 3. Optimization V3 (Ratio Objective: N/D)
 # ----------------------
+# def joint_gradient_ascent(S_B, S_WS, S_BS, subclass_means, parent_means, reg, num_iters=500, fix_params=None):
+#     dims = S_B.shape[0]
+#     W = np.random.randn(dims, 2)
+#     W, _ = np.linalg.qr(W)
+    
+#     # Defaults
+#     l1 = fix_params['l1'] if fix_params else 0.5
+#     l2 = fix_params['l2'] if fix_params else 0.5
+#     alpha = fix_params['alpha'] if fix_params else 0.5
+    
+#     step=1e-4; eps=1e-8
+#     history = []; hW = []
+    
+#     for it in range(num_iters):
+#         # S_mix (Denominator Scatter)
+#         S_mix = alpha * S_WS + (1 - alpha) * S_BS + reg * np.eye(dims)
+        
+#         # --- V3 Logic: Regularizers Inside Fraction ---
+        
+#         # S_R (Numerator: Sibling Separation 1/||x||)
+#         Sr_val = 0.0; g_Sr = np.zeros_like(W)
+#         for c, means in subclass_means.items():
+#             for i in range(len(means)):
+#                 for j in range(i+1, len(means)):
+#                     g, n = grad_norm(W, means[i] - means[j])
+#                     Sr_val += 1.0 / n
+#                     g_Sr += -(1 / n**2) * g
+                    
+#         # S_T (Denominator: Collapse ||x||)
+#         St_val = 0.0; g_St = np.zeros_like(W)
+#         for c, means in subclass_means.items():
+#             for mu in means:
+#                 g, n = grad_norm(W, mu - parent_means[c])
+#                 St_val += n
+#                 g_St += g
+                
+#         # Objective Components
+#         tr_N = np.trace(W.T @ S_B @ W)
+#         tr_D = np.trace(W.T @ S_mix @ W)
+        
+#         N = tr_N + l2 * Sr_val
+#         D = tr_D + l1 * St_val + eps
+        
+#         # Quotient Rule Gradients
+#         # J = N / D
+#         # Grad = (D * dN - N * dD) / D^2
+        
+#         g_N = 2 * S_B @ W + l2 * g_Sr
+#         g_D = 2 * S_mix @ W + l1 * g_St
+        
+#         grad_W = (D * g_N - N * g_D) / (D**2)
+        
+#         # Hyperparameter Gradients (Derived from Quotient Rule)
+#         if not fix_params:
+#             # dJ/dl2 = (D * Sr - 0) / D^2 = Sr / D
+#             grad_l2 = Sr_val / D
+            
+#             # dJ/dl1 = (0 - N * St) / D^2 = -(N * St) / D^2
+#             grad_l1 = -(N * St_val) / (D**2)
+            
+#             # dJ/da = -(N * dD/da) / D^2
+#             # dD/da = Tr(W' (Sws - Sbs) W)
+#             dD_da = np.trace(W.T @ (S_WS - S_BS) @ W)
+#             grad_alpha = -(N * dD_da) / (D**2)
+            
+#             # Updates
+#             l1 = max(l1 + step * grad_l1, 0)
+#             l2 = max(l2 + step * grad_l2, 0)
+#             alpha = np.clip(alpha + step * grad_alpha, 0, 1)
+
+#         W += step * grad_W
+#         W, _ = np.linalg.qr(W)
+        
+#         history.append(N / D)
+#         hW.append(np.linalg.norm(grad_W))
+        
+#         if it % 50 == 0:
+#             print(f"Iter {it}: Obj={history[-1]:.4f}, a={alpha:.2f}, l1={l1:.2f}, l2={l2:.2f}", end='\r')
+
+#     return W, l1, l2, alpha, history, hW
+
+
 def joint_gradient_ascent(S_B, S_WS, S_BS, subclass_means, parent_means, reg, num_iters=500, fix_params=None):
     dims = S_B.shape[0]
     W = np.random.randn(dims, 2)
@@ -88,24 +170,41 @@ def joint_gradient_ascent(S_B, S_WS, S_BS, subclass_means, parent_means, reg, nu
         # S_mix (Denominator Scatter)
         S_mix = alpha * S_WS + (1 - alpha) * S_BS + reg * np.eye(dims)
         
-        # --- V3 Logic: Regularizers Inside Fraction ---
+        # --- V3 Logic: Regularizers Inside Fraction (Squared Norms) ---
         
-        # S_R (Numerator: Sibling Separation 1/||x||)
+        # S_R (Numerator: Sibling Separation 1/||x||^2)
         Sr_val = 0.0; g_Sr = np.zeros_like(W)
         for c, means in subclass_means.items():
             for i in range(len(means)):
                 for j in range(i+1, len(means)):
-                    g, n = grad_norm(W, means[i] - means[j])
-                    Sr_val += 1.0 / n
-                    g_Sr += -(1 / n**2) * g
+                    diff = means[i] - means[j]
+                    proj = W.T @ diff
                     
-        # S_T (Denominator: Collapse ||x||)
+                    # Squared Norm
+                    sq_norm = np.dot(proj, proj) + eps
+                    
+                    # Objective: 1 / (||proj||^2 + eps)
+                    Sr_val += 1.0 / sq_norm
+                    
+                    # Gradient: -1/(sq_norm)^2 * (2 * diff * proj^T)
+                    grad_sq = 2 * np.outer(diff, proj)
+                    g_Sr += -(1.0 / (sq_norm**2)) * grad_sq
+                    
+        # S_T (Denominator: Collapse ||x||^2)
         St_val = 0.0; g_St = np.zeros_like(W)
         for c, means in subclass_means.items():
             for mu in means:
-                g, n = grad_norm(W, mu - parent_means[c])
-                St_val += n
-                g_St += g
+                diff = mu - parent_means[c]
+                proj = W.T @ diff
+                
+                # Squared Norm
+                sq_norm = np.dot(proj, proj)
+                
+                # Objective: ||proj||^2
+                St_val += sq_norm
+                
+                # Gradient: 2 * diff * proj^T
+                g_St += 2 * np.outer(diff, proj)
                 
         # Objective Components
         tr_N = np.trace(W.T @ S_B @ W)
@@ -151,7 +250,6 @@ def joint_gradient_ascent(S_B, S_WS, S_BS, subclass_means, parent_means, reg, nu
             print(f"Iter {it}: Obj={history[-1]:.4f}, a={alpha:.2f}, l1={l1:.2f}, l2={l2:.2f}", end='\r')
 
     return W, l1, l2, alpha, history, hW
-
 # ----------------------
 # 4. Grid Search
 # ----------------------

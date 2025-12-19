@@ -10,15 +10,25 @@ import os
 # 1. Data Generation
 # ----------------------
 def generate_data(dims=1000):
-    np.random.seed(42)
+    # np.random.seed(42)
     clusters_per_class = {1: [300], 2: [150, 150], 3: [75, 75, 75, 75]}
-    subclass_std = 100
-    cluster_std = 20
-    class_means = {
-        1: np.pad([100], (0, dims - 1)),
-        2: np.pad([0, 100], (0, dims - 2)),
-        3: np.pad([0, 0, 100], (0, dims - 3))
-    }
+    
+    # Standard deviations
+    subclass_std = 8
+    cluster_std = 4
+    mean_scale = 400 
+    class_means = {}
+    
+    for c_label in clusters_per_class.keys():
+        # 1. Pick a random direction
+        rand_vec = np.random.randn(dims)
+        # 2. Normalize to unit length
+        unit_vec = rand_vec / (np.linalg.norm(rand_vec) + 1e-9)
+        # 3. Scale it out to ensure they are "different enough"
+        # 4. Add a bit of extra noise (jitter) to the magnitude
+        magnitude = mean_scale + np.random.uniform(0, 50)
+        class_means[c_label] = unit_vec * magnitude
+
     data_points = []    
     labels_class = []    
     labels_cluster = []
@@ -26,13 +36,43 @@ def generate_data(dims=1000):
     for class_label, cluster_sizes in clusters_per_class.items():
         base_mean = class_means[class_label]
         for cluster_index, n_points in enumerate(cluster_sizes, start=1):
+            # Subclasses are centered around the Parent Mean + random offset (subclass_std)
             subclass_mean = base_mean + np.random.randn(dims) * subclass_std
+            
+            # Points are centered around Subclass Mean + random noise (cluster_std)
             points = subclass_mean + np.random.randn(n_points, dims) * cluster_std
+            
             data_points.append(points)
             labels_class.extend([class_label] * n_points)
             labels_cluster.extend([(class_label, cluster_index)] * n_points)
             
     return np.vstack(data_points), np.array(labels_class), np.array(labels_cluster)
+
+# def generate_data(dims=1000):
+#     np.random.seed(42)
+#     clusters_per_class = {1: [300], 2: [150, 150], 3: [75, 75, 75, 75]}
+#     subclass_std = 100
+#     cluster_std = 20
+#     class_means = {
+#         1: np.pad([100], (0, dims - 1)),
+#         2: np.pad([0, 100], (0, dims - 2)),
+#         3: np.pad([0, 0, 100], (0, dims - 3))
+#     }
+#     data_points = []    
+#     labels_class = []    
+#     labels_cluster = []
+    
+#     for class_label, cluster_sizes in clusters_per_class.items():
+#         base_mean = class_means[class_label]
+#         for cluster_index, n_points in enumerate(cluster_sizes, start=1):
+#             subclass_mean = base_mean + np.random.randn(dims) * subclass_std
+#             points = subclass_mean + np.random.randn(n_points, dims) * cluster_std
+#             data_points.append(points)
+#             labels_class.extend([class_label] * n_points)
+#             labels_cluster.extend([(class_label, cluster_index)] * n_points)
+            
+#     return np.vstack(data_points), np.array(labels_class), np.array(labels_cluster)
+
 
 # ----------------------
 # 2. Matrices & Helper
@@ -138,7 +178,7 @@ def compute_matrices(data, labels_class, labels_cluster, dims):
 #     return W, l1, l2, alpha, tau, history, hW
 
 
-def joint_gradient_ascent(S_B, S_WS, S_BS, subclass_means, parent_means, mu_tot, reg, num_iters=500, fix_params=None):
+def joint_gradient_ascent(S_B, S_WS, S_BS, subclass_means, parent_means, mu_tot, reg, num_iters=5000, fix_params=None):
     dims = S_B.shape[0]
     W = np.random.randn(dims, 2)
     W, _ = np.linalg.qr(W)
@@ -225,10 +265,11 @@ def joint_gradient_ascent(S_B, S_WS, S_BS, subclass_means, parent_means, mu_tot,
 # ----------------------
 def run_grid(S_B, S_WS, S_BS, sm, pm, mt, reg):
     print("Running Grid Search V2 (Ratio Trace)...") 
-    alphas = np.linspace(0, 1, 2)
-    l1s = np.linspace(0.1, 1000, 2)
-    l2s = np.linspace(0.1, 1000, 2)
-    taus = np.linspace(0, 1, 2)
+    alphas = np.linspace(0, 1, 10)
+    l1s = np.linspace(0.1, 1000, 10)
+    l2s = np.linspace(0.1, 1000, 10)
+    # taus = np.linspace(0, 1, 10)
+    taus = [0, 0.5, 1]
     
     grid = {'alpha': alphas, 'l1': l1s, 'l2': l2s, 'tau': taus}
     keys, values = zip(*grid.items())
@@ -255,12 +296,12 @@ def run_grid(S_B, S_WS, S_BS, sm, pm, mt, reg):
         if count % 10 == 0:
             print(f"Processed {count}/{total_combos} | Best Obj: {best_obj:.2f}", end='\r')
     print(f"\nGrid Search Complete. Best Obj: {best_obj:.4f}")
-    return best_params, best_W
+    return best_params, best_W, best_obj
 
 # ----------------------
 # 5. Visualization
 # ----------------------
-def viz(W, a, l1, l2, t, data, y_cls, y_clst, hist_W, dims, title_prefix="V2"):
+def viz(W, a, l1, l2, t, data, y_cls, y_clst, hist_W, dims, best_obj, title_prefix="V2"):
     # Full Projection
     d2 = data @ W
     u = np.unique(y_cls)
@@ -286,37 +327,40 @@ def viz(W, a, l1, l2, t, data, y_cls, y_clst, hist_W, dims, title_prefix="V2"):
         axs[1].text(0.5, 0.5, "No History for Grid Search Snapshot", ha='center')
     
     plt.tight_layout()
-    save_path = 'figs/hlda_v2'
+    save_path = f'figs/hlda_v2/{dims}'
     os.makedirs(save_path, exist_ok=True)
-    plt.savefig(os.path.join(save_path, f"{title_prefix}_projection.png"))
+    plt.savefig(os.path.join(save_path, f"{title_prefix}_projection_{best_obj:.4f}.png"))
 
 if __name__ == "__main__":
-    dims = 100
-    reg = 1e-8
+    dim_list = [3,3,3,3,3,10,10,10,10,50,50,50,50,100,100,100,100,500,500,500,500,1000,1000,1000,1000]
     
-    print("1. Generating Data...")
-    d, yc, ycl = generate_data(dims)
-    
-    print("2. Computing Matrices...")
-    Sb, Sw, Sbs, pm, sm, mt = compute_matrices(d, yc, ycl, dims)
-    
-    # --- PHASE A: GRID SEARCH ---
-    best_p, best_W_grid = run_grid(Sb, Sw, Sbs, sm, pm, mt, reg)
-    
-    # Visualize Grid Result
-    print("\nVisualizing Best Grid Search Result...")
-    viz(best_W_grid, best_p['alpha'], best_p['l1'], best_p['l2'], best_p['tau'], 
-        d, yc, ycl, [], dims, title_prefix="Grid Search Best")
-    
-    # --- PHASE B: GRADIENT ASCENT ---
-    # Use best params from grid, run longer optimization
-    print("3. Running Full Gradient Ascent using Best Grid Params...")
-    W_final, l1, l2, a, t, h, hW = joint_gradient_ascent(
-        Sb, Sw, Sbs, sm, pm, mt, reg, 
-        num_iters=1000, 
-        fix_params=best_p
-    )
-    
-    # Visualize Final Result
-    print(f"Final Objective: {h[-1]:.4f}")
-    viz(W_final, a, l1, l2, t, d, yc, ycl, hW, dims, title_prefix="Final Gradient Ascent")
+    for dims in dim_list:
+        # dims = 100
+        reg = 1e-8
+        
+        print("1. Generating Data...")
+        d, yc, ycl = generate_data(dims)
+        
+        print("2. Computing Matrices...")
+        Sb, Sw, Sbs, pm, sm, mt = compute_matrices(d, yc, ycl, dims)
+        
+        # --- PHASE A: GRID SEARCH ---
+        best_p, best_W_grid, best_obj = run_grid(Sb, Sw, Sbs, sm, pm, mt, reg)
+        
+        # Visualize Grid Result
+        print("\nVisualizing Best Grid Search Result...")
+        viz(best_W_grid, best_p['alpha'], best_p['l1'], best_p['l2'], best_p['tau'], 
+            d, yc, ycl, [], dims, best_obj, title_prefix="Grid Search Best")
+        
+        # --- PHASE B: GRADIENT ASCENT ---
+        # Use best params from grid, run longer optimization
+        print("3. Running Full Gradient Ascent using Best Grid Params...")
+        W_final, l1, l2, a, t, h, hW = joint_gradient_ascent(
+            Sb, Sw, Sbs, sm, pm, mt, reg, 
+            num_iters=1000, 
+            fix_params=best_p
+        )
+        
+        # Visualize Final Result
+        print(f"Final Objective: {h[-1]:.4f}")
+        viz(W_final, a, l1, l2, t, d, yc, ycl, hW, dims, best_obj, title_prefix="Final Gradient Ascent")
